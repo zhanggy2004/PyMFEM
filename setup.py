@@ -849,7 +849,9 @@ def cmake_make_mfem(serial=True):
             cmake_opts['DMFEM_USE_GSLIB'] = '1'
             cmake_opts['DGSLIB_DIR'] = gslibp_prefix
 
-    if enable_suitesparse:
+    # if enable_suitesparse:
+    # Gengyan: Disable suitesparse for parallel version
+    if enable_suitesparse and serial:
         cmake_opts['DMFEM_USE_SUITESPARSE'] = '1'
         if suitesparse_prefix != '':
             cmake_opts['DSuiteSparse_DIR'] = suitesparse_prefix
@@ -980,7 +982,12 @@ def write_setup_local():
     if enable_libceed:
         add_extra('libceed')
     if enable_suitesparse:
-        add_extra('suitesparse', inc_sub='suitesparse')
+        # Gengyan: Check subfolder for SuiteSparse include path
+        if 'suitesparse' in os.listdir(
+                os.path.join(suitesparse_prefix, 'include')):
+            add_extra('suitesparse', inc_sub='suitesparse')
+        else:
+            add_extra('suitesparse')
     if enable_gslib:
         add_extra('gslibs')
     if enable_gslib:
@@ -1069,8 +1076,15 @@ def generate_wrapper():
                '-I' + os.path.join(mfemser, 'include', 'mfem'),
                '-I' + os.path.abspath(mfem_source)]
     if enable_suitesparse:
-        serflag.append('-I' + os.path.join(suitesparse_prefix,
-                                           'include', 'suitesparse'))
+        # Gengyan: Check subfolder for SuiteSparse include path
+        if 'suitesparse' in os.listdir(
+                os.path.join(suitesparse_prefix, 'include')):
+
+            serflag.append(
+                '-I' +
+                os.path.join(suitesparse_prefix, 'include', 'suitesparse'))
+        else:
+            serflag.append('-I' + os.path.join(suitesparse_prefix, 'include'))
 
     for filename in ['lininteg.i', 'bilininteg.i']:
         command = [swig_command] + swigflag + serflag + [filename]
@@ -1106,9 +1120,9 @@ def generate_wrapper():
         parflag.append('-I' + os.path.join(pumi_prefix, 'include'))
     if enable_strumpack:
         parflag.append('-I' + os.path.join(strumpack_prefix, 'include'))
-    if enable_suitesparse:
-        parflag.append('-I' + os.path.join(suitesparse_prefix,
-                                           'include', 'suitesparse'))
+    # Gengyan: Disable suitesparse for parallel version
+    # if enable_suitesparse:
+    #     parflag.append('-I' + os.path.join(suitesparse_prefix, 'include'))
 
     commands = []
     for filename in ifiles():
@@ -1728,12 +1742,14 @@ class BuildPy(_build_py):
                 cmake_make_hypre()
             if build_libceed:
                 download('libceed')
-                # gitclone('libceed',branch='main')
+                gitclone('libceed',branch='main')
                 make_libceed()
             if build_gslib:
                 download('gslib')
                 make_gslib(serial=True)
-                if build_hypre:
+                # if build_hypre:
+                # Gengyan: `build_hypre` is False when using conda prebuilt package
+                if build_parallel:
                     make_gslib()
 
             mfem_downloaded = False

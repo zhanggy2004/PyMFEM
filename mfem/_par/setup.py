@@ -154,6 +154,8 @@ def get_extensions():
         from setup_local import libceedinc
         include_dirs.append(libceedinc)
 
+    # Gengyan: Disable suitesparse for parallel version
+    add_suitesparse = ''
     if add_suitesparse == '1':
         from setup_local import suitesparseinc
         modules.append("schwarz")
