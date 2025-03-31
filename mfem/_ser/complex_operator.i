@@ -51,3 +51,31 @@ namespace mfem {
    }
 }
 };
+
+#ifdef MFEM_USE_SUITESPARSE
+
+// access to ComplexUMFPackSolver.Control and Info
+%pythoncode %{
+import ctypes
+from .solvers import UMFPACK_CONTROL, UMFPACK_INFO
+
+ComplexUMFPackSolver._Control = ComplexUMFPackSolver.Control
+ComplexUMFPackSolver._Info = ComplexUMFPackSolver.Info
+
+def getControl(self):
+    import ctypes
+    mem = (ctypes.c_double * UMFPACK_CONTROL).from_address(int(self._Control))
+    pointer = ctypes.pointer(mem)
+    return pointer.contents
+
+def getInfo(self):
+    import ctypes
+    mem = (ctypes.c_double * UMFPACK_INFO).from_address(int(self._Info))
+    pointer = ctypes.pointer(mem)
+    return pointer.contents
+
+ComplexUMFPackSolver.Control = property(getControl)
+ComplexUMFPackSolver.Info = property(getInfo)
+%}
+
+#endif
