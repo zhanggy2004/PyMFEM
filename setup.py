@@ -142,6 +142,9 @@ lapack_libraries = ""
 dry_run = -1
 do_bdist_wheel = False
 
+enable_autodoc = False
+skip_download = False
+
 cc_command = 'cc' if os.getenv("CC") is None else os.getenv("CC")
 cxx_command = 'c++' if os.getenv("CC") is None else os.getenv("CXX")
 mpicc_command = 'mpicc' if os.getenv("MPICC") is None else os.getenv("MPICC")
@@ -394,14 +397,18 @@ def download(xxx):
 
 
 def gitclone(xxx, use_sha=False, branch='master'):
+
+    global skip_download
+
     cwd = os.getcwd()
     repo_xxx = os.path.join(extdir, xxx)
     if os.path.exists(repo_xxx):
         os.chdir(repo_xxx)
         command = ['git', 'checkout', branch]
         make_call(command)
-        command = ['git', 'pull']
-        make_call(command)
+        if not skip_download:
+            command = ['git', 'pull']
+            make_call(command)
 
         # print("Deleting the existing " + xxx)
         # shutil.rmtree(repo_xxx)
@@ -409,10 +416,10 @@ def gitclone(xxx, use_sha=False, branch='master'):
         repo = repos[xxx]
         if git_sshclone:
             repo = repo.replace("https://github.com/", "git@github.com:")
-
-        os.chdir(extdir)
-        command = ['git', 'clone', repo, xxx]
-        make_call(command)
+        if not skip_download:
+            os.chdir(extdir)
+            command = ['git', 'clone', repo, xxx]
+            make_call(command)
 
     if not dry_run:
         if not os.path.exists(repo_xxx):
@@ -425,6 +432,15 @@ def gitclone(xxx, use_sha=False, branch='master'):
         else:
             command = ['git', 'checkout', branch]
         make_call(command)
+    os.chdir(cwd)
+
+
+def gitapply(xxx, diff_file):
+    cwd = os.getcwd()
+    repo_xxx = os.path.join(extdir, xxx)
+    os.chdir(repo_xxx)
+    command = ['git', 'apply', diff_file]
+    make_call(command)
     os.chdir(cwd)
 
 
@@ -749,8 +765,8 @@ def cmake_make_mfem(serial=True):
             rpaths.append(p)
 
     cmake_opts = {'DBUILD_SHARED_LIBS': '1',
-                  'DMFEM_ENABLE_EXAMPLES': '1',
-                  'DMFEM_ENABLE_MINIAPPS': '1',
+                  'DMFEM_ENABLE_EXAMPLES': '0',
+                  'DMFEM_ENABLE_MINIAPPS': '0',
                   'DCMAKE_SHARED_LINKER_FLAGS': ldflags,
                   'DMFEM_USE_ZLIB': '1',
                   'DCMAKE_CXX_FLAGS': cxx11_flag,
@@ -1068,7 +1084,12 @@ def generate_wrapper():
 
     update_header_exists(mfem_source)
 
-    swigflag = '-Wall -c++ -python -fastproxy -olddefs -keyword'.split(' ')
+    global enable_autodoc
+
+    if enable_autodoc:
+        swigflag = '-Wall -c++ -python -fastproxy -olddefs -keyword -features autodoc=1'.split(' ')
+    else:
+        swigflag = '-Wall -c++ -python -fastproxy -olddefs -keyword -doxygen'.split(' ')
 
     pwd = chdir(os.path.join(rootdir, 'mfem', '_ser'))
 
@@ -1292,6 +1313,8 @@ def configure_install(self):
     global enable_suitesparse, suitesparse_prefix
     global enable_lapack, blas_libraries, lapack_libraries
 
+    global enable_autodoc, skip_download
+
     verbose = bool(self.vv) if verbose == -1 else verbose
     dry_run = bool(self.dry_run) if dry_run == -1 else dry_run
     if dry_run:
@@ -1330,6 +1353,9 @@ def configure_install(self):
     run_swig = True
 
     mfem_debug = bool(self.mfem_debug)
+
+    enable_autodoc = bool(self.with_autodoc)
+    skip_download = bool(self.skip_download)
 
     if build_serial:
         build_serial = (not swig_only and not ext_only)
@@ -1549,7 +1575,8 @@ class Install(_install):
         ('no-serial', None, 'Skip building the serial wrapper'),
         ('mfem-prefix=', None, 'Specify locaiton of mfem' +
          'libmfem.so must exits under <mfem-prefix>/lib. ' +
-         'This mode uses clean-swig + run-swig, unless mfem-prefix-no-swig is on'),
+         'This mode uses clean-swig + run-swig, unless mfem-prefix-no-swig is on'
+        ),
         ('mfemp-prefix=', None, 'Specify locaiton of parallel mfem ' +
          'libmfem.so must exits under <mfemp-prefix>/lib. ' +
          'Need to use it with mfem-prefix'),
@@ -1566,10 +1593,12 @@ class Install(_install):
         ('metis-prefix=', None, 'Specify locaiton of metis' +
          'libmetis.so must exits under <metis-prefix>/lib'),
         ('git-sshclone', None, 'Use SSH for git clone',
-         'try if default git clone using https fails (need Github account and setting for SSH)'),
+         'try if default git clone using https fails (need Github account and setting for SSH)'
+        ),
         ('swig', None, 'Run Swig and exit'),
         ('skip-swig', None,
-         'Skip running swig (used when wrapper is generated for the MFEM C++ library to be used'),
+         'Skip running swig (used when wrapper is generated for the MFEM C++ library to be used'
+        ),
         ('ext-only', None, 'Build metis, hypre, mfem(C++) only'),
         ('skip-ext', None, 'Skip building metis, hypre, mfem(C++) only'),
         ('build-only', None, 'Skip final install stage to prefix'),
@@ -1580,12 +1609,14 @@ class Install(_install):
         ('unverifiedSSL', None, 'use unverified SSL context for downloading'),
         ('with-cuda', None, 'enable cuda'),
         ('with-cuda-hypre', None, 'enable cuda in hypre'),
-        ('cuda-arch=', None, 'set cuda compute capability. Ex if A100, set to 80'),
+        ('cuda-arch=', None,
+         'set cuda compute capability. Ex if A100, set to 80'),
         ('with-metis64', None, 'use 64bit int in metis'),
         ('with-pumi', None, 'enable pumi (parallel only)'),
         ('pumi-prefix=', None, 'Specify locaiton of pumi'),
         ('with-suitesparse', None,
-         'build MFEM with suitesparse (MFEM_USE_SUITESPARSE=YES) (parallel only)'),
+         'build MFEM with suitesparse (MFEM_USE_SUITESPARSE=YES) (parallel only)'
+        ),
         ('suitesparse-prefix=', None,
          'Specify locaiton of suitesparse (=SuiteSparse_DIR)'),
         ('with-libceed', None, 'enable libceed'),
@@ -1597,9 +1628,14 @@ class Install(_install):
         ('with-strumpack', None, 'enable strumpack (parallel only)'),
         ('strumpack-prefix=', None, 'Specify locaiton of strumpack'),
         ('with-lapack', None, 'build MFEM with lapack'),
-        ('blas-libraries=', None, 'Specify locaiton of Blas library (used to build MFEM)'),
+        ('blas-libraries=', None,
+         'Specify locaiton of Blas library (used to build MFEM)'),
         ('lapack-libraries=', None,
          'Specify locaiton of Lapack library (used to build MFEM)'),
+        ('with-autodoc', None, 'Use `-features autodoc=1` when running swig'),
+        ('skip-download', None,
+         'Skip downloading external packages using `git clone` or `request.urlopen()'
+        ),
     ]
 
     def initialize_options(self):
@@ -1655,6 +1691,9 @@ class Install(_install):
         self.vv = False
 
         self.unverifiedSSL = False
+
+        self.with_autodoc = False
+        self.skip_download = False
 
     def finalize_options(self):
 
@@ -1727,6 +1766,9 @@ class BuildPy(_build_py):
         _build_py.finalize_options(self)
 
     def run(self):
+
+        global skip_download
+
         if not swig_only:
             if build_metis:
                 if use_metis_gklib:
@@ -1734,18 +1776,21 @@ class BuildPy(_build_py):
                     gitclone('metis', use_sha=True)
                     make_metis(use_int64=metis_64, use_real64=metis_64)
                 else:
-                    download('metis')
+                    if not skip_download:
+                        download('metis')
                     make_metis(use_int64=metis_64, use_real64=metis_64)
 
             if build_hypre:
-                download('hypre')
+                if not skip_download:
+                    download('hypre')
                 cmake_make_hypre()
             if build_libceed:
                 download('libceed')
                 gitclone('libceed',branch='main')
                 make_libceed()
             if build_gslib:
-                download('gslib')
+                if not skip_download:
+                    download('gslib')
                 make_gslib(serial=True)
                 # if build_hypre:
                 # Gengyan: `build_hypre` is False when using conda prebuilt package
@@ -1756,13 +1801,19 @@ class BuildPy(_build_py):
             if build_mfem:
                 gitclone('mfem', use_sha=True) if mfem_branch is None else gitclone(
                     'mfem', branch=mfem_branch)
+                gitapply('mfem',
+                         diff_file=os.path.join(rootdir, 'docs/doxygen.patch'))
                 mfem_downloaded = True
+
                 cmake_make_mfem(serial=True)
 
             if build_mfemp:
                 if not mfem_downloaded:
                     gitclone('mfem', use_sha=True) if mfem_branch is None else gitclone(
                         'mfem', branch=mfem_branch)
+                    gitapply('mfem',
+                             diff_file=os.path.join(rootdir,
+                                                    'docs/doxygen.patch'))
                 cmake_make_mfem(serial=False)
 
         if clean_swig:
